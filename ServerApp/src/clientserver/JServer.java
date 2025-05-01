@@ -1,69 +1,26 @@
 package clientserver;
 
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.Random;
+import java.nio.charset.Charset;
+import java.util.LinkedList;
 
-public class JServer extends Thread  {
-    private static final int PORT = 5555;// номер порта, который будет прослушивать сервер
+public class JServer {
+    private static final int PORT = 8192;// номер порта, который будет прослушивать сервер
     // шаблоны сообщений сервера
-    private final String MSG = "Клиент '%d' отправил мне сообщение:\n\r";
-    private final String CONN = "Клиент '%d' закрыл соединение";
-    private Socket socket;// канал для связи сервера и клиента (или приложений)
-    private int num;// номер клиента
-    private static String[] string;// массив цитат
-
-    public void setSocket(int num, Socket socket) {
-        this.num = num;
-        this.socket = socket;
-
-        start();// запуска канала сервера (запуск потока)
-    }
-
-    @Override
-    public void run(){
-        try {
-            // входной и выходной потоки данных
-            DataInputStream dis = new DataInputStream(socket.getInputStream());
-            DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
-
-            String line;
-            while(true) {
-                // читаем данные пока канал не будет закрыт
-                line = dis.readUTF();// читаем с поддержкой UTF-формата
-                
-                if(line.equalsIgnoreCase("yes")) {
-                    // если введено YES, выбираем цитату из массива случайным образом
-                    Random random = new Random();
-                    // печать информационных сообщений
-                    System.out.printf(MSG, num);
-                    System.out.println(line);
-                    int i = random.nextInt(5);
-                    // вывод информации в поток данных
-                    System.out.println("Отправляю обратно...\n\t" + string[i]);
-                    dos.writeUTF(string[i]);
-                    dos.flush();// очищаем поток и выводим все данные
-                    System.out.println();
-                    
-                }
-                
-                if(line.endsWith("no") || line.equalsIgnoreCase("quit")) {
-                    // если введено quit, закрываем канал и выходим из цикла
-                    socket.close();
-                    System.out.printf(CONN, num);
-                    break;
-                }
-            }
-        } catch (IOException e) {
-            System.out.println("exception: " + e.getMessage());
-        }
-    }
-
+    private static final String MSG = "Клиент {'%d'} передал сообщение:\n\r";
+    private static final String CLOSE_MESSAGE = "Клиент {'%d'} закрыл соединение\n\r";
+    private static final String OPEN_MESSAGE = "\n\nПринят клиент ID={'%d'}\n\r";
+    private static final LinkedList<ServerSomething> serverList = new LinkedList<>();
+    
+    
     public static void main(String[] args) {
         ServerSocket srvSocket = null;// создаём канал сервера
         int i = 0;// начальное занчение счётчика клиентов
@@ -73,17 +30,12 @@ public class JServer extends Thread  {
                 InetAddress ia = InetAddress.getByName("localhost");
                 srvSocket = new ServerSocket(PORT, 0, ia);// создаём канал
                 System.out.println("Сервер запущен");
-                string = new String[]{"Если вы можете мечтать об этом, вы можете это сделать.",
-                    "Не считай дни, извлекай из них пользу.",
-                    "Не ждите. Время никогда не будет подходящим.",
-                    "Неисследованная жизнь не стоит того, чтобы ее жить.",
-                    "Усердно работайте, мечтайте по-крупному.",
-                    "Я не потерпел неудачу. Я просто нашел 10 000 способов, которые не работают."};
                 // запускается бесконечный цикл ожидания подключения клиентов
                 while (true) {
                     Socket socket = srvSocket.accept();// создаём канал для принятия данных
-                    System.err.println("\n\nКлиент принят");
-                    new JServer().setSocket(i++, socket);// создание нашего класса - сервера
+                    serverList.add(i, new ServerSomething(socket));
+                    System.out.printf(OPEN_MESSAGE, serverList.get(i).getId());
+                    i++;
                 }
             } catch (IOException ex) {
                 System.out.println("Исключение: " + ex);
@@ -98,6 +50,113 @@ public class JServer extends Thread  {
                 }
             } catch (IOException ex) {
                 System.out.println("Исключение: " + ex);
+            }
+        }
+    }
+    
+    private static class ServerSomething extends Thread {
+        private final Socket socket;// канал связи
+        private final BufferedReader bufIn;// объект чтения из потока ввода
+        private final BufferedWriter bufOut;// объект записи в поток вывода
+        
+        public ServerSomething(Socket socket) throws IOException {
+            this.socket = socket;
+            // если потоки ввода/вывода приведут к генерированию исключения, оно
+            // пробросится дальше; для потоков задаём кодировку символов
+            bufIn = new BufferedReader(new InputStreamReader(socket.getInputStream(), 
+                    Charset.forName("windows-1251")));
+            bufOut = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(), 
+                    Charset.forName("windows-1251")));
+            start();
+        }
+
+        @Override
+        public void run() {
+            String word;
+            try {
+                // первое - имя клиента
+                word = bufIn.readLine();
+                send(word);// выталкиваем данные и очищаем поток
+                
+                // передаём список подключенных соединений
+                sendClientConnections();
+                
+                try {
+                    while (true) {
+                        word = bufIn.readLine();
+                        System.out.printf(MSG, this.getId());
+                        System.out.println(word);
+                        if(word.equalsIgnoreCase("quit")) {
+                            this.downService();
+                            break;
+                        }
+
+                        for (ServerSomething vr : JServer.serverList) {
+                            if(!vr.equals(this)) vr.send("\t" + word);
+                        }
+                    }
+                } catch (NullPointerException ex) {
+                    
+                }
+            } catch (IOException ex) {
+                
+            }
+        }
+
+        /**
+         * Отправляет сообщение
+         * @param word текст сообщения
+         */
+        private void send(String word) {
+            try {
+                bufOut.write(word + "\n");
+                bufOut.flush();
+            } catch (IOException ex) {
+                
+            }
+        }
+
+        /**
+         * Закрывает текущее соединение, прерывает выполнение потока
+         */
+        private void downService() {
+            try {
+                if(!socket.isClosed()) {
+                    socket.close();
+                    bufIn.close();
+                    bufOut.close();
+                    for(ServerSomething vr : JServer.serverList) {
+                        // извещаем других пользователей о закрытии соединения
+                        if(!vr.equals(this)) {
+                            vr.send("Клиент {" + this.getId() + "} закрыл соединение\n");
+                            System.out.printf(CLOSE_MESSAGE, this.getId());
+                        }
+                        
+                    }
+                    this.interrupt();// прерываем поток
+                    JServer.serverList.remove(this);// удаляем из списка
+                    if(JServer.serverList.isEmpty()) {
+                        System.exit(0);// завершаем работу
+                    }
+                }
+            } catch (IOException ex) {
+                
+            }
+        }
+        
+        /**
+         * Передаёт список существующих подключений новому клиенту
+         */
+        private void sendClientConnections() {
+            // передаём перечень клиентов, если в сети находистя больше одного
+            if(JServer.serverList.size() > 1) {
+                send("В сети пользователи:");
+                for (ServerSomething vr : JServer.serverList) {
+                    if(!vr.equals(this)) {
+                        vr.send("Подключился:\t" + this.getId());
+                        send("ID:\t" + vr.getId());
+                    }
+                }
             }
         }
     }

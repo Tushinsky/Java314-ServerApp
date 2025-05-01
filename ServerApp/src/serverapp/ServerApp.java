@@ -20,7 +20,8 @@ public class ServerApp {
     public static void main(String[] args) {
         // TODO code application logic here
         JServer jServer = new JServer();
-        JClient client = new JClient();
+        JClient firstClient = new JClient();
+        JClient secondClient = new JClient();
     }
     
 }
