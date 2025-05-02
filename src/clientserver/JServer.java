@@ -1,93 +1,27 @@
 package clientserver;
 
 
-import connection.JDBCConnection;
-import connection.Runquery;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.FileNotFoundException;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.IOException;
-import java.io.ObjectOutputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.sql.SQLException;
-import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import java.nio.charset.Charset;
+import java.util.Arrays;
+import java.util.LinkedList;
 
-public class JServer extends Thread  {
+public class JServer {
     private static final int PORT = 8192;// номер порта, который будет прослушивать сервер
     // шаблоны сообщений сервера
-    private final String MSG = "Клиент '%d' отправил мне сообщение:\n\r";
-    private final String CONN_MESSAGE = "Клиент '%d' закрыл соединение";
-    private Socket socket;// канал для связи сервера и клиента (или приложений)
-    private int num;// номер клиента
-    private JDBCConnection connect;
-    private boolean connOpen = false;
-    private String hostIP;// IP адрес сервера базы данных
-    private String serverPort;// порт сервера базы данных
-    private String databaseName;// имя базы данных
-    private String userName;// имя пользователя
-    private String password;// пароль пользователя
+    private static final String MSG = "Клиент {'%d'} передал сообщение:\n\r";
+    private static final String CLOSE_MESSAGE = "Клиент {'%d'} закрыл соединение\n\r";
+    private static final String OPEN_MESSAGE = "\n\nПринят клиент ID={'%d'}\n\r";
+    private static final LinkedList<ServerSomething> serverList = new LinkedList<>();
     
-    public void setSocket(int num, Socket socket) {
-        this.num = num;
-        this.socket = socket;
-
-        start();// запуска канала сервера (запуск потока)
-    }
-
-    @Override
-    public void run(){
-        try {
-            // входной и выходной потоки данных
-            DataInputStream dis = new DataInputStream(socket.getInputStream());
-            DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
-
-            String line;
-            while(true) {
-                // читаем данные пока канал не будет закрыт
-                line = dis.readUTF();// читаем с поддержкой UTF-формата
-                // печать информационных сообщений
-                System.out.printf(MSG, num);
-                System.out.println(line);
-                if(line.startsWith("connect:")) {
-                    // если передаётся строка соединения с базой данных, проверяем
-                    // открывалось ли оно
-                    connectToBataBase(dos, line);
-                } else if(line.equalsIgnoreCase("no")) {
-                    // если введено NO, закрываем соединение
-                    closeConnection(dos);
-                } else if(line.equalsIgnoreCase("quit")) {
-                    // если введено QUIT, закрываем канал и выходим из цикла
-                    quitSocket(dos, line);
-                    break;
-                } else {
-                    // если клиент посылает запрос на получение/изменение данных
-                    // запрос должен начинаться с ключевого слова SQL:
-                    if(line.startsWith("sql:")) {
-                        // выведем сообщение
-                        System.out.printf(MSG, num);
-                        System.out.println();
-                        outPutObjectData(line);
-                        // отправим его обратно пользователю
-                        outPutData(dos, line);
-                    } else {
-                        // отправим его обратно пользователю
-                        outPutData(dos, line);
-                    }
-                }
-            }
-            
-            System.exit(0);// заканчиваем работу
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        } catch (SQLException | ClassNotFoundException ex) {
-            Logger.getLogger(JServer.class.getName()).log(Level.SEVERE, null, ex);
-        }
-    }
-
+    
     public static void main(String[] args) {
         ServerSocket srvSocket = null;// создаём канал сервера
         int i = 0;// начальное занчение счётчика клиентов
@@ -100,8 +34,9 @@ public class JServer extends Thread  {
                 // запускается бесконечный цикл ожидания подключения клиентов
                 while (true) {
                     Socket socket = srvSocket.accept();// создаём канал для принятия данных
-                    System.err.println("\n\nКлиент принят");
-                    new JServer().setSocket(i++, socket);// создание нашего класса - сервера
+                    serverList.add(i, new ServerSomething(socket));
+                    System.out.printf(OPEN_MESSAGE, serverList.get(i).getId());
+                    i++;
                 }
             } catch (IOException ex) {
                 System.out.println("Исключение: " + ex);
@@ -120,149 +55,150 @@ public class JServer extends Thread  {
         }
     }
     
-    /**
-     * Открывает соединение с базой данных
-     * @return true - в случае удачи, иначе возвращает false
-     * @throws FileNotFoundException
-     * @throws IOException
-     * @throws SQLException
-     * @throws ClassNotFoundException 
-     */
-    private boolean openConnection() throws FileNotFoundException, 
-            IOException, SQLException, ClassNotFoundException {
-        try {
-            // set drivername
-            String driver = "org.firebirdsql.jdbc.FBDriver";
-            String url = "jdbc:firebirdsql://" + hostIP + ":" +
-                serverPort + "/" + databaseName;
-            // создаём соединение, проверяем его сосотяние
-            connect = new JDBCConnection(driver, url, userName, password);
-            return connect.isClosedConn() != true;
-        } catch (SQLException ex){
-            return false;
+    private static class ServerSomething extends Thread {
+        private final Socket socket;// канал связи
+        private final BufferedReader bufIn;// объект чтения из потока ввода
+        private final BufferedWriter bufOut;// объект записи в поток вывода
+        
+        public ServerSomething(Socket socket) throws IOException {
+            this.socket = socket;
+            // если потоки ввода/вывода приведут к генерированию исключения, оно
+            // пробросится дальше; для потоков задаём кодировку символов
+            bufIn = new BufferedReader(new InputStreamReader(socket.getInputStream(), 
+                    Charset.forName("windows-1251")));
+            bufOut = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(), 
+                    Charset.forName("windows-1251")));
+            start();
         }
 
-            
-    }
-    
-    private void connectToBataBase (DataOutputStream dos, String line) throws 
-            IOException, FileNotFoundException, SQLException,
-            ClassNotFoundException {
-        if(connOpen == false) {
-            System.out.println("Устанавливаем соединение с базой данных...");
-            // если соединение на открывалось, разбираем строку на составляющие
-            String[] str = line.substring(8).split(";");
-            // для установки соединения нужен массив из 5 элементов
-            if(str.length < 5) {
-                // вывод информации в поток данных
-                outPutData(dos, "Не хватает данных для установки соединения!");
-                
-            } else {
-                // получаем параметры соединения
-                hostIP = str[0];
-                serverPort = str[1];
-                databaseName = str[2];
-                userName = str[3];
-                password = str[4];
-                // открываем соединение
-                connOpen = openConnection();
-            }
-        }
-        if(connOpen) {
-            System.out.println("Соединение установлено");
-            outPutData(dos, "Соединение установлено! Введите запрос на получение данных:");
-            
-        }
-    }
-    
-    private void closeConnection(DataOutputStream dos) {
-        try {
-            if (connect != null && !connect.isClosedConn()) {
-                JDBCConnection.getConn().close();
-                if(connect.isClosedConn()){
-                    System.out.println("Соединение закрыто!");
-                    connOpen = false;
-                }
-            }
-            // вывод информации в поток данных
-            outPutData(dos, "Соединение закрыто");
-            
-
-        } catch (SQLException ex) {
-            Logger.getLogger(JServer.class.getName()).log(Level.SEVERE, null, ex);
-        }
-    }
-    
-    /**
-     * Выводит информацию в поток данных
-     * @param dos объект класса DataOutputStream, в который выводится информация
-     * @param line строка для вывода
-     */
-    private void outPutData(DataOutputStream dos, String line) {
-        try {
-            dos.writeUTF(line);
-            dos.flush();// очищаем поток и выводим все данные
-            System.out.println();
-        } catch (IOException ex) {
-            Logger.getLogger(JServer.class.getName()).log(Level.SEVERE, null, ex);
-        }
-    }
-    
-    /**
-     * Закрывает канал передачи данных
-     * @param dos объект класса DataOutputStream, в который выводится информация
-     * @param line  строка для вывода
-     */
-    private void quitSocket(DataOutputStream dos, String line) {
-        try {
-            // вывод информации в поток данных
-            outPutData(dos, line);
-            closeConnection(dos);
-            socket.close();
-            System.out.printf(CONN_MESSAGE, num);
-            System.out.println();
-        } catch (IOException ex) {
-            Logger.getLogger(JServer.class.getName()).log(Level.SEVERE, null, ex);
-        }
-    }
-    
-    /**
-     * Создаёт объектный поток и выводит в него данные, полученные в результате
-     * запроса к базе данных
-     * @param line строка-запрос на получение данных
-     */
-    private void outPutObjectData(String line) {
-        // какой запрос получаем
-        if(line.startsWith("select", 4)) {
-            ObjectOutputStream oos = null;
+        @Override
+        public void run() {
+            String word;
             try {
-                // запрос на выборку данных
-                Runquery rq = new Runquery();
-                String sql = line.substring(4);
-                List<Object[]> queryEntities = rq.getQueryEntities(sql);
-                oos = new ObjectOutputStream(System.out);
-                oos.writeObject(queryEntities);
-            } catch (IOException ex) {
-                Logger.getLogger(JServer.class.getName()).log(Level.SEVERE, null, ex);
-            } finally {
+                // первое - имя клиента
+                word = bufIn.readLine();
+                send("Hello, " + word);// выталкиваем данные и очищаем поток
+                this.setName(word);// задаём имя потоку
+                // передаём список подключенных соединений
+                sendClientConnections();
+                
                 try {
-                    oos.close();
-                } catch (IOException ex) {
-                    Logger.getLogger(JServer.class.getName()).log(Level.SEVERE, null, ex);
+                    while (true) {
+                        word = bufIn.readLine();
+                        System.out.printf(MSG, this.getId());
+                        System.out.println(word);
+                        if(word.equalsIgnoreCase("quit")) {
+                            this.downService();
+                            break;
+                        }
+                        /*
+                        проверяем сообщение на индивидуальность - если передаётся
+                        код контакта, то сообщение передаём только ему, иначе
+                        передаём в общий чат
+                        */
+                        if(!sendToContactName(word)) {
+                            
+                            sendMSGEveryone(word);
+                        }
+                    }
+                } catch (NullPointerException ex) {
+                    
+                }
+            } catch (IOException ex) {
+                
+            }
+        }
+
+        /**
+         * Отправляет сообщение
+         * @param word текст сообщения
+         */
+        private void send(String word) {
+            try {
+                bufOut.write(word + "\n");
+                bufOut.flush();
+            } catch (IOException ex) {
+                
+            }
+        }
+
+        /**
+         * Закрывает текущее соединение, прерывает выполнение потока
+         */
+        private void downService() {
+            try {
+                if(!socket.isClosed()) {
+                    socket.close();
+                    bufIn.close();
+                    bufOut.close();
+                    for(ServerSomething vr : JServer.serverList) {
+                        // извещаем других пользователей о закрытии соединения
+                        if(!vr.equals(this)) {
+                            vr.send(this.getName() + " {" + this.getId() + "} закрыл соединение\n");
+                            System.out.printf(CLOSE_MESSAGE, this.getId());
+                        }
+                        
+                    }
+                    this.interrupt();// прерываем поток
+                    JServer.serverList.remove(this);// удаляем из списка
+                    if(JServer.serverList.isEmpty()) {
+                        System.exit(0);// завершаем работу
+                    }
+                }
+            } catch (IOException ex) {
+                
+            }
+        }
+        
+        /**
+         * Передаёт список существующих подключений новому клиенту
+         */
+        private void sendClientConnections() {
+            // передаём перечень клиентов, если в сети находистя больше одного
+            if(JServer.serverList.size() > 1) {
+                send("В сети:");
+                for (ServerSomething vr : JServer.serverList) {
+                    if(!vr.equals(this)) {
+                        vr.send("Подключился:\t" + this.getName() + " ID=" + this.getId());
+                        send("Name:\t" + vr.getName() + " ID=" + vr.getId());
+                    }
                 }
             }
-        } else if(line.startsWith("update", 4)) {
-            // запрос на обновление данных
-        } else if(line.startsWith("insert", 4)) {
-            // запрос на вставку данных
-        } else if(line.startsWith("delete", 4)) {
-            // запрос на удаление данных
-        } else if(line.startsWith("proc", 4)) {
-            // вызов сохранённой процедуры
-        } else if(line.startsWith("view", 4)) {
-            // выхов сохранённого представления
-        } else {
-            
+        }
+        
+        private boolean sendToContactName(String word) {
+            String[] strArray = word.split(":");
+            try {
+                long id = Long.parseLong(strArray[3]);// код контакта (идентификатор потока)
+                System.out.println("contactId=" + id);
+                for (ServerSomething vr : JServer.serverList) {
+                    if(vr.getId() == id) {
+                        // передаём сообщение в эту нить
+                        vr.send(strArray[0] + ":" + strArray[1] + ":" + strArray[2] + 
+                        ":" + strArray[4]);
+                        break;// завершаем цикл
+                    }
+                }
+            } catch (NumberFormatException ex) {
+                // ошибка может выскочить, если не передан код контакта
+                return false;
+            }
+            return true;
+        }
+        
+        private void sendMSGEveryone(String word) {
+            String[] strArray = word.split(":");
+            System.out.println("MSG array:" + Arrays.toString(strArray));
+            String message;
+            if(strArray.length > 4) {
+                message = strArray[0] + ":" + strArray[1] + ":" + strArray[2] + 
+                        ":" + strArray[4];
+            } else {
+                message = word;
+            }
+            for (ServerSomething vr : JServer.serverList) {
+                if(!vr.equals(this)) vr.send("\t" + message);
+            }
         }
     }
 }

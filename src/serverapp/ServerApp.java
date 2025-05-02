@@ -5,7 +5,7 @@
  */
 package serverapp;
 
-import clientserver.Client;
+import clientserver.JClient;
 import clientserver.JServer;
 
 /**
@@ -20,7 +20,8 @@ public class ServerApp {
     public static void main(String[] args) {
         // TODO code application logic here
         JServer jServer = new JServer();
-        Client client = new Client();
+        JClient firstClient = new JClient();
+        JClient secondClient = new JClient();
     }
     
 }
