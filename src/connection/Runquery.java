@@ -19,9 +19,9 @@ import javax.swing.JOptionPane;
  */
 public class Runquery {
 
-    private String tableName;// ��� ������� ���� ������ �/�� ������� ����� ����������/��������� ������
-    private String[] columnName = null;
-    private Class[] columnClass = null;
+    private String tableName;// имя таблицы базы данных в/из которой передаются данные
+    private String[] columnName = null;// массив назименований столбцов
+    private Class[] columnClass = null;// массив типов данных столбцов
     
     public Runquery(String tableName) {
         this.tableName = tableName;
@@ -483,9 +483,9 @@ public class Runquery {
     }
     
     private void showErrorMessage(SQLException ex){
-        JOptionPane.showMessageDialog(null, "произошли ошибки во время выполнения запроса с базе данных!\n\r" +
-                "Ошибка: " + ex.getLocalizedMessage() + "\n\r" +
-                "Код ошибки: " + ex.getErrorCode(), "JServer", JOptionPane.ERROR_MESSAGE);
+        JOptionPane.showMessageDialog(null, "��������� ������ �� ����� ������������ ��������!\n\r" +
+                "������: " + ex.getLocalizedMessage() + "\n\r" +
+                "��� ������: " + ex.getErrorCode(), "AbonentGaz", JOptionPane.ERROR_MESSAGE);
         Logger.getLogger(Runquery.class.getName()).log(Level.SEVERE, null, ex);
     }
     
