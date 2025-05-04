@@ -178,7 +178,7 @@ public class JClient {
                             ClientSomething.this.downService();
                             break;// выход из цикла
                         } else {
-                            dos.write(nickName + " (" + dtime + ")" + ":" + userWord + "\n");// отправляем на сервер
+                            dos.write(getFormatMessage(userWord));// отправляем на сервер
                             dos.flush();// чистим
                         }
 
@@ -190,7 +190,31 @@ public class JClient {
                 
             }
 
-
+            /**
+             * Преобразует сообщение, извлекая код контакта, которому оно передаётся.
+             * Найденный код контакта ставится первым в передаваемом сообщении
+             * @param userWord сообщение для форматирования
+             * @return преобразованное сообщение для передачи
+             */
+            private String getFormatMessage(String userWord) {
+                int pos = userWord.indexOf(":");// первое вхождение символа ":"
+                // если вхождение есть, получаем код, в противном случае он равен "0"
+                String id;
+                StringBuilder retVal = new StringBuilder();
+                if(pos == -1) {
+                    id = "0:";
+                    retVal.append(id).append(nickName).append("(")
+                            .append(dtime).append("):\t")
+                            .append(userWord).append("\n");
+                } else {
+                    id = userWord.substring(0, pos) + ":";
+                    retVal.append(id).append(nickName).append("(")
+                            .append(dtime).append("):\t")
+                            .append(userWord.substring(pos + 1)).append("\n");
+                }
+                
+                return retVal.toString();
+            }
         }
 
 

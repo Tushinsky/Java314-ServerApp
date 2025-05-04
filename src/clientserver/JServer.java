@@ -24,7 +24,6 @@ public class JServer {
     
     public static void main(String[] args) {
         ServerSocket srvSocket = null;// создаём канал сервера
-        int i = 0;// начальное занчение счётчика клиентов
         try {
             try {
                 // получаем IP адрес локальгого компьютера (если сервер расположен на локальной машине)
@@ -34,9 +33,10 @@ public class JServer {
                 // запускается бесконечный цикл ожидания подключения клиентов
                 while (true) {
                     Socket socket = srvSocket.accept();// создаём канал для принятия данных
-                    serverList.add(i, new ServerSomething(socket));
-                    System.out.printf(OPEN_MESSAGE, serverList.get(i).getId());
-                    i++;
+                    serverList.add(new ServerSomething(socket));
+                    System.out.printf(OPEN_MESSAGE, 
+                            serverList.get(serverList.size() - 1).getId());
+                    
                 }
             } catch (IOException ex) {
                 System.out.println("Исключение: " + ex);
@@ -96,7 +96,7 @@ public class JServer {
                         код контакта, то сообщение передаём только ему, иначе
                         передаём в общий чат
                         */
-                        if(!sendToContactName(word)) {
+                        if(!sendToContactID(word)) {
                             
                             sendMSGEveryone(word);
                         }
@@ -134,7 +134,7 @@ public class JServer {
                     for(ServerSomething vr : JServer.serverList) {
                         // извещаем других пользователей о закрытии соединения
                         if(!vr.equals(this)) {
-                            vr.send(this.getName() + " {" + this.getId() + "} закрыл соединение\n");
+                            vr.send("\t" + this.getName() + " {" + this.getId() + "} закрыл соединение\n");
                             System.out.printf(CLOSE_MESSAGE, this.getId());
                         }
                         
@@ -166,36 +166,48 @@ public class JServer {
             }
         }
         
-        private boolean sendToContactName(String word) {
-            String[] strArray = word.split(":");
+        /**
+         * Передаёт сообщение выбранному контакту
+         * @param word сообщение, которое передаётся
+         * @return true, если сообщение передано удачно, иначе false
+         */
+        private boolean sendToContactID(String word) {
+            int pos = word.indexOf(":");// получаем первое вхождение символа ":"
             try {
-                long id = Long.parseLong(strArray[3]);// код контакта (идентификатор потока)
+                long id = Long.parseLong(word.substring(0, pos));// код контакта (идентификатор потока)
                 System.out.println("contactId=" + id);
+                if(id == 0) {
+                    // если код равен 0 (сообщение в общий чат)
+                    return false;
+                }
                 for (ServerSomething vr : JServer.serverList) {
                     if(vr.getId() == id) {
                         // передаём сообщение в эту нить
-                        vr.send(strArray[0] + ":" + strArray[1] + ":" + strArray[2] + 
-                        ":" + strArray[4]);
+                        vr.send("\t" + word.substring(pos + 1));
                         break;// завершаем цикл
                     }
                 }
             } catch (NumberFormatException ex) {
                 // ошибка может выскочить, если не передан код контакта
+                // или передан неверный код, который не может быть преобразован
                 return false;
             }
             return true;
         }
         
+        /**
+         * Передаёт сообщение в общий чат
+         * @param word сообщение для передачи
+         */
         private void sendMSGEveryone(String word) {
-            String[] strArray = word.split(":");
-            System.out.println("MSG array:" + Arrays.toString(strArray));
-            String message;
-            if(strArray.length > 4) {
-                message = strArray[0] + ":" + strArray[1] + ":" + strArray[2] + 
-                        ":" + strArray[4];
-            } else {
-                message = word;
-            }
+            // разбор сообщения
+            int pos = word.indexOf(":");// получаем первое вхождение символа ":"
+            /*
+            0, 1, 2 - ник пользователя и время передачи сообщения, 4 - текст сообщения;
+            в качестве признака сообщения для общего чата может быть передан 0
+            ничего или любой набор символов
+            */
+            String message = word.substring(pos + 1);
             for (ServerSomething vr : JServer.serverList) {
                 if(!vr.equals(this)) vr.send("\t" + message);
             }
